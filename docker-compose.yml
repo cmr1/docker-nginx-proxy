@@ -3,14 +3,14 @@ services:
   rproxy-example:
     build: .
     ports:
-      - 3333:3333
+      - 3333:3307
       - 11111:11111
       - 22222:22222
     networks:
       - proxy-network
     environment:
       SERVER_TYPE: tcp
-      SERVER_BACKENDS: 3333:db-tunnel-nextgen-staging:3306
+      SERVER_BACKENDS: 3307:db-tunnel-nextgen-staging:3306
 
 # Docker Networks
 networks:

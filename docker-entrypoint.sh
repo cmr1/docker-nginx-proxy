@@ -83,14 +83,42 @@ location ~ ^${1}/?assets/ {
 EOF
 }
 
-function create_tcp_proxy_server() {
+function create_tcp_upstream() {
 cat <<EOF
-server {
-  listen $1;
-  proxy_pass $2;
+upstream $1 {
+  server $2:$3;
+  zone tcp_mem 64k;
+  least_conn;
 }
 EOF
 }
+
+function create_tcp_proxy_server() {
+cat <<EOF
+server {
+  listen $1 bind reuseport so_keepalive=30m::10;
+  proxy_pass $2;
+  proxy_socket_keepalive on;
+}
+EOF
+}
+
+# function create_tcp_upstream() {
+# cat <<EOF
+# upstream $1 {
+#   server $2:$3;
+# }
+# EOF
+# }
+
+# function create_tcp_proxy_server() {
+# cat <<EOF
+# server {
+#   listen $1;
+#   proxy_pass $2;
+# }
+# EOF
+# }
 
 # function create_stream_conf() {
 # cat <<EOF
@@ -136,7 +164,12 @@ else
         echo "WARNING! Duplicate upstream: '$upstream' for backend: '$backend' :: Using existing upstream definition..."
       else
         UPSTREAMS+=("$upstream")
-        echo "$(create_upstream $upstream $cont $port)" >> $UPSTREAMS_FILE
+
+        if [[ "$SERVER_TYPE" == "tcp" ]]; then
+          echo "$(create_tcp_upstream $upstream $cont $port)" >> $UPSTREAMS_FILE
+        else
+          echo "$(create_upstream $upstream $cont $port)" >> $UPSTREAMS_FILE
+        fi
       fi
 
       if [[ "$SERVER_TYPE" == "tcp" ]]; then
