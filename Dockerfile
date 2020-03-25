@@ -1,5 +1,5 @@
 # Pull in the from the official nginx image.
-FROM nginx:1.10
+FROM nginx
 
 # Optionally set a maintainer name to let people know who made this image.
 MAINTAINER Charlie McClung <charlie@cmr1.com>
