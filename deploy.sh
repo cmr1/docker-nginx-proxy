@@ -3,7 +3,7 @@
 set -e
 
 IMAGE=cmr1/nginx-proxy
-BRANCH_TARGETS=("php-fpm" "open-cors")
+BRANCH_TARGETS=("php-fpm" "open-cors" "stream")
 
 should_deploy_branch() {
   for i in "${BRANCH_TARGETS[@]}"; do
