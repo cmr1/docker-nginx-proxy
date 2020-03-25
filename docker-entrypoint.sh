@@ -8,12 +8,25 @@ UPSTREAMS=()
 
 LOCATIONS_FILE=$NGINX_INSTALL_PATH/conf.d/locations.conf
 UPSTREAMS_FILE=$NGINX_INSTALL_PATH/conf.d/upstreams.conf
+TCP_PROXY_FILE=$NGINX_INSTALL_PATH/conf.d/tcp.conf
 
 # Update placeholder vars to be taken from ENV vars
 
 PLACEHOLDER_SERVER_NAME="${SERVER_NAME:-_}"
 PLACEHOLDER_SERVER_TYPE="${SERVER_TYPE:-http}"
+PLACEHOLDER_SERVER_CONF="http"
 PLACEHOLDER_CLIENT_MAX_BODY_SIZE="${CLIENT_MAX_BODY_SIZE:-1m}"
+
+if [[ "$SERVER_TYPE" == "tcp" ]]; then
+  PLACEHOLDER_SERVER_CONF="stream"
+fi
+
+if [ ! -f $NGINX_INSTALL_PATH/nginx-$PLACEHOLDER_SERVER_CONF.conf ]; then
+  echo "Missing/invalid server config: nginx-$PLACEHOLDER_SERVER_CONF.conf"
+  exit 1
+fi
+
+echo "Using server config: nginx-$PLACEHOLDER_SERVER_CONF.conf ..."
 
 upstream_exists () {
   for i in "${UPSTREAMS[@]}"; do
@@ -70,6 +83,24 @@ location ~ ^${1}/?assets/ {
 EOF
 }
 
+function create_tcp_proxy_server() {
+cat <<EOF
+server {
+  listen $1;
+  proxy_pass $2;
+}
+EOF
+}
+
+# function create_stream_conf() {
+# cat <<EOF
+# stream {
+#   include conf.d/upstreams.conf;
+#   include conf.d/stream.conf;
+# }
+# EOF
+# }
+
 if [[ "$SERVER_BACKENDS" == "" ]]; then
   echo "No backends defined!"
 else
@@ -89,36 +120,56 @@ else
       dest="${SETTINGS[3]:-$path}"
       upstream="$cont-$port"
 
-      echo "Configuring NGINX route: '$path' => '$cont:$port$dest' (using upstream: '$upstream')"
-      
+      msg="Configuring NGINX route: '$path' =>"
+
+      if [[ "$path" == "$dest" ]]; then
+        msg="$msg '$cont:$port'"
+      else
+        msg="$msg '$cont:$port$dest'"
+      fi
+
+      msg="$msg (using upstream: '$upstream')"
+
+      echo $msg
+
       if upstream_exists $upstream; then
         echo "WARNING! Duplicate upstream: '$upstream' for backend: '$backend' :: Using existing upstream definition..."
       else
-        UPSTREAMS+=("$upstream")      
+        UPSTREAMS+=("$upstream")
         echo "$(create_upstream $upstream $cont $port)" >> $UPSTREAMS_FILE
       fi
 
-      if [ -d /$cont/public ]; then
-        echo "$(create_assets_location $path $cont)" >> $LOCATIONS_FILE
-      fi
+      if [[ "$SERVER_TYPE" == "tcp" ]]; then
+        listen=$port
 
-      if location_exists $path; then
-        echo "ERROR! Location conflict: '$path' is already registered!"
-        exit 1
+        if [[ "$listen" != "$path" ]] ; then
+          listen=$path
+        fi
+
+        echo "$(create_tcp_proxy_server $listen $upstream)" >> $TCP_PROXY_FILE
       else
-        LOCATIONS+=("$path")
-        echo "$(create_location $path $upstream $dest)" >> $LOCATIONS_FILE
+        if [ -d /$cont/public ]; then
+          echo "$(create_assets_location $path $cont)" >> $LOCATIONS_FILE
+        fi
+
+        if location_exists $path; then
+          echo "ERROR! Location conflict: '$path' is already registered!"
+          exit 1
+        else
+          LOCATIONS+=("$path")
+          echo "$(create_location $path $upstream $dest)" >> $LOCATIONS_FILE
+        fi
       fi
     fi
   done
 fi
 
-sed -i "s/PLACEHOLDER_SERVER_TYPE/${PLACEHOLDER_SERVER_TYPE}/g" "${NGINX_INSTALL_PATH}/nginx.conf"
-
-for conf in $NGINX_INSTALL_PATH/conf.d/*.conf; do
+for conf in $NGINX_INSTALL_PATH/{*.conf,**/*.conf}; do
+  sed -i "s/PLACEHOLDER_SERVER_TYPE/${PLACEHOLDER_SERVER_TYPE}/g" "${conf}"
+  sed -i "s/PLACEHOLDER_SERVER_CONF/${PLACEHOLDER_SERVER_CONF}/g" "${conf}"
   sed -i "s/PLACEHOLDER_SERVER_NAME/${PLACEHOLDER_SERVER_NAME}/g" "${conf}"
   sed -i "s/PLACEHOLDER_CLIENT_MAX_BODY_SIZE/${PLACEHOLDER_CLIENT_MAX_BODY_SIZE}/g" "${conf}"
-done 
+done
 
 # Execute the CMD from the Dockerfile and pass in all of its arguments.
 exec "$@"
